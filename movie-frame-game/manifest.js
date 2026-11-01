@@ -1,0 +1,1 @@
+window.FRAME_MANIFEST = {};
