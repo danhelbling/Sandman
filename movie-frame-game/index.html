@@ -49,7 +49,11 @@
   .slot .zoom { position: absolute; right: 6px; bottom: 6px; z-index: 1; padding: 2px 8px; font-size: 12px; background: #000c; }
   .slot.on.zoomed { cursor: crosshair; }
   .slot span { position: absolute; left: 6px; top: 6px; background: #000c; padding: 2px 8px; border-radius: 6px; font-size: 12px; z-index: 1; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--thumb, 220px), 1fr)); gap: 8px; }
+  .grid.small .assign small { display: none; }
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .filters button { padding: 4px 10px; font-size: 13px; }
+  .filters button.on { border-color: var(--accent); color: var(--accent); }
   .tile { background: var(--panel); border: 2px solid var(--line); border-radius: 8px; overflow: hidden; position: relative; }
   .tile.used { border-color: var(--accent); }
   .tile img { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; cursor: zoom-in; }
@@ -103,6 +107,7 @@
     <button id="exportPicks" class="primary">Export picks.js</button>
     <span class="hint">Picks save in this browser automatically. Export and replace picks.js to keep them for good.</span>
   </div>
+  <div class="filters" id="filters"></div>
   <div class="grid" id="grid"></div>
 </section>
 
@@ -166,7 +171,7 @@ function renderGame() {
     stage.append(el("div", { className: "empty", innerHTML:
       "<p><strong>Frame " + (frame + 1) + " of Movie " + (movie + 1) + " isn't picked yet.</strong></p>" +
       "<p>Click <b>Pick Frames</b> (top right) to choose it." +
-      ((MANIFEST[MOVIES[movie].id] || []).length ? "" : " No frames found yet: run <code>./fetch_frames.sh</code> first, then reload.") + "</p>" }));
+      ((MANIFEST[MOVIES[movie].id] || []).length ? "" : " No frames found yet: run <code>python3 fetch_frames.py</code> first (see README.md), then reload.") + "</p>" }));
   } else {
     const img = applyZoom(el("img", { src: picks[frame], alt: "Frame " + (frame + 1) }), zoomsFor(movie)[frame]);
     stage.append(el("div", { className: "frame" }, [img]));
@@ -215,8 +220,23 @@ function renderSetup() {
   });
   const grid = document.getElementById("grid"); grid.innerHTML = "";
   const cands = MANIFEST[id] || [];
-  if (!cands.length) grid.append(el("p", { className: "hint", textContent: "No candidate frames found. Run ./fetch_frames.sh first." }));
+  // Clip filter + thumbnail size
+  const clipsOf = [...new Set(cands.map(c => (c.match(/\/c(\d+)_/) || [])[1]).filter(Boolean))];
+  const filters = document.getElementById("filters"); filters.innerHTML = "";
+  filters.append(el("span", { className: "hint", textContent: cands.length + " frames · Show:" }));
+  [null, ...clipsOf].forEach(c => filters.append(el("button", {
+    textContent: c ? "Clip " + c : "All", className: clipFilter === c ? "on" : "",
+    onclick: () => { clipFilter = c; renderSetup(); window.scrollTo(0, 0); }
+  })));
+  filters.append(el("span", { className: "hint", textContent: " · Size:", style: "margin-left:8px" }));
+  [["S", 150], ["M", 220], ["L", 340]].forEach(([n, px]) => filters.append(el("button", {
+    textContent: n, className: thumb === px ? "on" : "", onclick: () => { thumb = px; renderSetup(); }
+  })));
+  grid.style.setProperty("--thumb", thumb + "px");
+  grid.classList.toggle("small", thumb < 200);
+  if (!cands.length) grid.append(el("p", { className: "hint", textContent: "No candidate frames found. Run python3 fetch_frames.py first (see README.md)." }));
   cands.forEach((src, ci) => {
+    if (clipFilter && !src.includes("/c" + clipFilter + "_")) return;
     const pos = picks.indexOf(src);
     const tile = el("div", { className: "tile" + (pos >= 0 ? " used" : "") }, [
       el("img", { src, loading: "lazy", onclick: () => openLightbox(ci) }),
@@ -252,7 +272,7 @@ function assignRow(src, label) {
   }));
   return row;
 }
-let lbIndex = null;
+let lbIndex = null, clipFilter = null, thumb = 220;
 function openLightbox(ci) {
   const cands = MANIFEST[MOVIES[movie].id] || [];
   if (!cands.length) return;
@@ -274,7 +294,7 @@ function render() {
   mode === "game" ? renderGame() : renderSetup();
 }
 
-function goMovie(i) { closeLightbox(); movie = Math.max(0, Math.min(MOVIES.length - 1, i)); frame = 0; slot = 0; revealed = false; render(); }
+function goMovie(i) { closeLightbox(); clipFilter = null; movie = Math.max(0, Math.min(MOVIES.length - 1, i)); frame = 0; slot = 0; revealed = false; render(); }
 
 document.getElementById("modeBtn").onclick = () => { mode = mode === "game" ? "setup" : "game"; render(); };
 document.getElementById("prevFrame").onclick = () => { frame = Math.max(0, frame - 1); renderGame(); };

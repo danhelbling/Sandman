@@ -42,8 +42,11 @@ python3 fetch_frames.py
 ```
 (On Windows, use `python` if `python3` doesn't work.)
 
-You get up to 200 frames per movie. It skips black frames and spreads the 200 across every clip.
-- For fewer frames: `python3 fetch_frames.py --target 50`
+You get a frame every second (every half second in the first 5 minutes of each clip, where title screens usually are), plus one at every scene cut.
+Blurry and in-between frames are kept on purpose, because they make great hard frames. Only fully black frames are skipped, so title text on a black background is kept.
+- For even more: `python3 fetch_frames.py --every 0.5`
+- For fewer: `python3 fetch_frames.py --every 3` or `--target 300`
+- Title screen not showing up? Add a clip of the opening or title sequence to `clips` (search YouTube for "<movie> title sequence").
 - To redo one movie: `python3 fetch_frames.py shrek2`
 - If a clip says "download failed", that YouTube video was removed. Swap the link in `movies.js` and run again.
 
@@ -52,8 +55,9 @@ You get up to 200 frames per movie. It skips black frames and spreads the 200 ac
 Open `index.html` in Chrome, Safari, or Edge. It starts in **Pick Frames**.
 1. Click a movie tab.
 2. Under any frame, click **1–5** to put it in that spot (1 = hardest, 5 = title screen). Click the same number again to remove it.
-3. Click a frame to see it big. Use **← / →** to browse and the keys **1–5** to assign.
-4. To make a frame harder, click **Zoom** on a slot at the top, then click the slot image where you want to zoom in.
+3. With hundreds of frames, use **Show: Clip 1 / Clip 2…** to look at one clip at a time, and **Size: S** to fit more on screen. Title screens are usually near the start of a clip.
+4. Click a frame to see it big. Use **← / →** to browse and the keys **1–5** to assign.
+5. To make a frame harder, click **Zoom** on a slot at the top, then click the slot image where you want to zoom in.
 
 Your picks are saved in that browser. To keep them for good, or to move the game to another computer, click **Export picks.js** and replace the `picks.js` in this folder with the downloaded file.
 
