@@ -6,7 +6,7 @@ window.MOVIES = [
     title: "The Avengers (2012)",
     clips: [
       "https://www.youtube.com/watch?v=CHh-PPs2Wms", // title sequence
-      "https://www.youtube.com/watch?v=erCSUccSaGo", // opening / final scene
+      "https://www.youtube.com/watch?v=JcgJvJqCdrw", // Iron Man & Captain America vs Loki (Germany)
       "https://www.youtube.com/watch?v=pQKYN-yR2oM", // Loki arrives on Earth
       "https://www.youtube.com/watch?v=oBqqI6NMeaM"  // Avengers assemble
     ]
