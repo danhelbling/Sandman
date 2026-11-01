@@ -6,8 +6,10 @@ cd "$(dirname "$0")"
 command -v yt-dlp >/dev/null || { echo "Install yt-dlp first (brew install yt-dlp  or  pip install yt-dlp)"; exit 1; }
 command -v ffmpeg >/dev/null || { echo "Install ffmpeg first (brew install ffmpeg)"; exit 1; }
 
-SCENE="${SCENE:-0.35}"   # lower = more candidate frames
-MAX_PER_CLIP="${MAX_PER_CLIP:-60}"
+TARGET="${TARGET:-50}"         # candidate frames kept per movie
+SCENE="${SCENE:-0.25}"         # scene-change sensitivity (lower = more cuts detected)
+EVERY="${EVERY:-6}"            # also grab a frame at least every N seconds
+MIN_BRIGHT="${MIN_BRIGHT:-28}" # drop frames darker than this (0-255 average)
 
 # Read "id url" pairs out of movies.js
 pairs=$(python3 - <<'PY'
@@ -36,16 +38,25 @@ while read -r id n url; do
   fi
   echo ">> Extracting scene frames from $vid"
   rm -f "$fdir"/c${n}_*.jpg
-  # first frame of the clip + one frame at every scene change
+  # a frame at every scene change, plus one every $EVERY s; black/dark frames dropped
   ffmpeg -nostdin -loglevel error -i "$vid" \
-    -vf "select='eq(n\,0)+gt(scene\,$SCENE)',scale=1280:-2" \
-    -fps_mode vfr -frames:v "$MAX_PER_CLIP" -q:v 3 "$fdir/c${n}_%03d.jpg" \
+    -vf "select='gt(scene\,$SCENE)+gte(t-prev_selected_t\,$EVERY)',signalstats,metadata=mode=select:key=lavfi.signalstats.YAVG:value=$MIN_BRIGHT:function=greater,scale=1280:-2" \
+    -fps_mode vfr -q:v 3 "$fdir/c${n}_%04d.jpg" \
     || { echo "!! Could not extract frames from $vid" >&2; failed="$failed $id#$n"; }
 done <<< "$pairs"
 
 # Write manifest.js listing every candidate frame (works when opened as a file://)
-python3 - <<'PY'
+TARGET="$TARGET" python3 - <<'PY'
 import os, json
+target = int(os.environ["TARGET"])
+# Thin each movie down to ~TARGET frames, evenly spread across all its clips
+for mid in sorted(os.listdir("frames")) if os.path.isdir("frames") else []:
+    d = os.path.join("frames", mid)
+    files = sorted(f for f in os.listdir(d) if f.endswith(".jpg"))
+    if len(files) > target:
+        keep = {files[round(i * (len(files) - 1) / (target - 1))] for i in range(target)}
+        for f in files:
+            if f not in keep: os.remove(os.path.join(d, f))
 out = {}
 for mid in sorted(os.listdir("frames")) if os.path.isdir("frames") else []:
     d = os.path.join("frames", mid)

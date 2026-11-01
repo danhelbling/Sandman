@@ -26,7 +26,8 @@
   /* Game */
   #game { display: flex; flex-direction: column; height: calc(100% - 59px); }
   .stage { flex: 1; display: flex; align-items: center; justify-content: center; padding: 16px; min-height: 0; position: relative; }
-  .stage img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; box-shadow: 0 10px 40px #000a; }
+  .frame { max-width: 100%; max-height: 100%; overflow: hidden; border-radius: 6px; box-shadow: 0 10px 40px #000a; display: flex; }
+  .frame img { max-width: 100%; max-height: calc(100vh - 200px); object-fit: contain; display: block; }
   .stage .empty { color: var(--muted); text-align: center; max-width: 520px; }
   .label { position: absolute; top: 24px; left: 50%; transform: translateX(-50%); background: #000b;
     padding: 4px 14px; border-radius: 999px; font-size: 14px; color: var(--muted); }
@@ -43,9 +44,12 @@
   .slot { border: 2px dashed var(--line); border-radius: 8px; aspect-ratio: 16/9; position: relative; overflow: hidden;
     cursor: pointer; display: grid; place-items: center; color: var(--muted); font-size: 13px; }
   .slot.on { border-color: var(--accent); border-style: solid; }
-  .slot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .slot .crop { position: absolute; inset: 0; overflow: hidden; }
+  .slot .crop img { width: 100%; height: 100%; object-fit: cover; }
+  .slot .zoom { position: absolute; right: 6px; bottom: 6px; z-index: 1; padding: 2px 8px; font-size: 12px; background: #000c; }
+  .slot.on.zoomed { cursor: crosshair; }
   .slot span { position: absolute; left: 6px; top: 6px; background: #000c; padding: 2px 8px; border-radius: 6px; font-size: 12px; z-index: 1; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
   .grid img { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: 6px; cursor: pointer; border: 2px solid transparent; }
   .grid img:hover { border-color: var(--muted); }
   .grid img.used { border-color: var(--accent); }
@@ -78,7 +82,8 @@
 <section id="setup">
   <div class="row">
     <strong id="setupTitle"></strong>
-    <span class="hint">Click a slot, then click a frame to put it there. Slot 1 = hardest, slot 5 = title screen.</span>
+    <span class="hint">Click a slot, then click a frame to put it there. Slot 1 = hardest, slot 5 = title screen.
+      Use <b>Zoom</b> to crop into a detail, then click the selected slot's image to choose where to zoom.</span>
   </div>
   <div class="slots" id="slots"></div>
   <div class="row" style="margin-bottom:14px">
@@ -113,6 +118,17 @@ function picksFor(m) {
   return [0, 1, 2, 3, 4].map(i => c[Math.min(c.length - 1, Math.round(i * (c.length - 1) / 4))]);
 }
 
+function zoomsFor(m) {
+  const id = MOVIES[m].id;
+  return (saved[id + ":zoom"] || (window.FRAME_PICKS || {})[id + ":zoom"] || []).slice();
+}
+function applyZoom(img, z) {
+  if (!z || z.z <= 1) return img;
+  img.style.transform = "scale(" + z.z + ")";
+  img.style.transformOrigin = z.x + "% " + z.y + "%";
+  return img;
+}
+
 function el(tag, props = {}, kids = []) {
   const e = Object.assign(document.createElement(tag), props);
   kids.forEach(k => e.append(k));
@@ -136,7 +152,8 @@ function renderGame() {
       "<p><strong>No frames yet for Movie " + (movie + 1) + ".</strong></p>" +
       "<p>Run <code>./fetch_frames.sh</code> in this folder, then reload. Use Setup to pick the 5 frames.</p>" }));
   } else {
-    stage.append(el("img", { src: picks[frame], alt: "Frame " + (frame + 1) }));
+    const img = applyZoom(el("img", { src: picks[frame], alt: "Frame " + (frame + 1) }), zoomsFor(movie)[frame]);
+    stage.append(el("div", { className: "frame" }, [img]));
     stage.append(el("div", { className: "label", textContent: "Movie " + (movie + 1) + " · Frame " + (frame + 1) + " of 5 · " + LEVELS[frame] }));
   }
   const dots = document.getElementById("dots"); dots.innerHTML = "";
@@ -158,10 +175,26 @@ function renderSetup() {
   while (picks.length < 5) picks.push(null);
   document.getElementById("setupTitle").textContent = "Movie " + (movie + 1) + ": " + MOVIES[movie].title;
   const slots = document.getElementById("slots"); slots.innerHTML = "";
+  const zooms = zoomsFor(movie);
+  const saveZoom = () => { saved[id + ":zoom"] = zooms; store.set(saved); renderSetup(); };
   picks.forEach((src, i) => {
-    const s = el("div", { className: "slot" + (i === slot ? " on" : ""), onclick: () => { slot = i; renderSetup(); } },
+    const z = zooms[i] || { z: 1, x: 50, y: 50 };
+    const s = el("div", { className: "slot" + (i === slot ? " on" : "") + (z.z > 1 ? " zoomed" : "") },
       [el("span", { textContent: (i + 1) + " · " + LEVELS[i] })]);
-    if (src) s.append(el("img", { src })); else s.append("empty");
+    s.onclick = e => {
+      if (i === slot && src && z.z > 1) {           // pick zoom focus point
+        const r = s.getBoundingClientRect();
+        zooms[i] = { z: z.z, x: Math.round((e.clientX - r.left) / r.width * 100), y: Math.round((e.clientY - r.top) / r.height * 100) };
+        return saveZoom();
+      }
+      slot = i; renderSetup();
+    };
+    if (src) {
+      s.append(el("div", { className: "crop" }, [applyZoom(el("img", { src }), z)]));
+      s.append(el("button", { className: "zoom", textContent: "Zoom " + z.z + "x", onclick: e => {
+        e.stopPropagation(); zooms[i] = { ...z, z: z.z >= 4 ? 1 : z.z + 1 }; slot = i; saveZoom();
+      } }));
+    } else s.append("empty");
     slots.append(s);
   });
   const grid = document.getElementById("grid"); grid.innerHTML = "";
@@ -169,7 +202,7 @@ function renderSetup() {
   if (!cands.length) grid.append(el("p", { className: "hint", textContent: "No candidate frames found. Run ./fetch_frames.sh first." }));
   cands.forEach(src => grid.append(el("img", {
     src, loading: "lazy", title: src, className: picks.includes(src) ? "used" : "",
-    onclick: () => { picks[slot] = src; saved[id] = picks; store.set(saved); slot = Math.min(4, slot + 1); renderSetup(); }
+    onclick: () => { picks[slot] = src; saved[id] = picks; const zz = zoomsFor(movie); zz[slot] = { z: 1, x: 50, y: 50 }; saved[id + ":zoom"] = zz; store.set(saved); slot = Math.min(4, slot + 1); renderSetup(); }
   })));
 }
 
@@ -189,10 +222,10 @@ document.getElementById("nextFrame").onclick = () => { frame = Math.min(4, frame
 document.getElementById("prevMovie").onclick = () => goMovie(movie - 1);
 document.getElementById("nextMovie").onclick = () => goMovie(movie + 1);
 document.getElementById("reveal").onclick = () => { revealed = !revealed; renderGame(); };
-document.getElementById("clearPicks").onclick = () => { delete saved[MOVIES[movie].id]; store.set(saved); slot = 0; renderSetup(); };
+document.getElementById("clearPicks").onclick = () => { delete saved[MOVIES[movie].id]; delete saved[MOVIES[movie].id + ":zoom"]; store.set(saved); slot = 0; renderSetup(); };
 document.getElementById("exportPicks").onclick = () => {
   const all = {};
-  MOVIES.forEach((m, i) => { all[m.id] = picksFor(i); });
+  MOVIES.forEach((m, i) => { all[m.id] = picksFor(i); all[m.id + ":zoom"] = zoomsFor(i); });
   const blob = new Blob(["// Exported from Setup.\nwindow.FRAME_PICKS = " + JSON.stringify(all, null, 1) + ";\n"], { type: "text/javascript" });
   const a = el("a", { href: URL.createObjectURL(blob), download: "picks.js" }); a.click();
 };
