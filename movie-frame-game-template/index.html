@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Name That Movie</title>
+<style>
+  :root {
+    --bg: #0d0d10; --panel: #17171c; --line: #2a2a33; --text: #f2f0ea;
+    --muted: #9a98a3; --accent: #f5c518; --good: #4ade80;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  button { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--accent); color: #111; border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .35; cursor: default; }
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: .04em; text-transform: uppercase; }
+  header .spacer { flex: 1; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+  .tabs button.on { border-color: var(--accent); color: var(--accent); }
+
+  /* Game */
+  #game { display: flex; flex-direction: column; height: calc(100% - 59px); }
+  .stage { flex: 1; display: flex; align-items: center; justify-content: center; padding: 16px; min-height: 0; position: relative; }
+  .frame { max-width: 100%; max-height: 100%; overflow: hidden; border-radius: 6px; box-shadow: 0 10px 40px #000a; display: flex; }
+  .frame img { max-width: 100%; max-height: calc(100vh - 200px); object-fit: contain; display: block; }
+  .stage .empty { color: var(--muted); text-align: center; max-width: 520px; }
+  .label { position: absolute; top: 24px; left: 50%; transform: translateX(-50%); background: #000b;
+    padding: 4px 14px; border-radius: 999px; font-size: 14px; color: var(--muted); }
+  .controls { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 14px 16px 20px; flex-wrap: wrap; }
+  .dots { display: flex; gap: 8px; }
+  .dot { width: 34px; height: 34px; border-radius: 50%; padding: 0; display: grid; place-items: center; font-weight: 600; }
+  .dot.seen { border-color: var(--muted); }
+  .dot.on { background: var(--accent); color: #111; border-color: var(--accent); }
+  .answer { min-width: 260px; text-align: center; font-size: 22px; font-weight: 700; color: var(--good); }
+
+  /* Setup */
+  #setup { padding: 16px 20px 40px; display: none; }
+  .slots { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 12px 0 18px; }
+  .slot { border: 2px dashed var(--line); border-radius: 8px; aspect-ratio: 16/9; position: relative; overflow: hidden;
+    cursor: pointer; display: grid; place-items: center; color: var(--muted); font-size: 13px; }
+  .slot.on { border-color: var(--accent); border-style: solid; }
+  .slot .crop { position: absolute; inset: 0; overflow: hidden; }
+  .slot .crop img { width: 100%; height: 100%; object-fit: cover; }
+  .slot .zoom { position: absolute; right: 6px; bottom: 6px; z-index: 1; padding: 2px 8px; font-size: 12px; background: #000c; }
+  .slot.on.zoomed { cursor: crosshair; }
+  .slot span { position: absolute; left: 6px; top: 6px; background: #000c; padding: 2px 8px; border-radius: 6px; font-size: 12px; z-index: 1; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+  .tile { background: var(--panel); border: 2px solid var(--line); border-radius: 8px; overflow: hidden; position: relative; }
+  .tile.used { border-color: var(--accent); }
+  .tile img { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; cursor: zoom-in; }
+  .tile .num { position: absolute; left: 6px; top: 6px; background: #000c; padding: 1px 7px; border-radius: 6px; font-size: 12px; color: var(--muted); }
+  .tile .badge { position: absolute; right: 6px; top: 6px; background: var(--accent); color: #111; padding: 1px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; }
+  .assign { display: flex; gap: 4px; padding: 6px; align-items: center; }
+  .assign small { color: var(--muted); margin-right: auto; font-size: 12px; white-space: nowrap; }
+  .assign button { padding: 3px 0; width: 30px; font-size: 13px; }
+  .assign button.on { background: var(--accent); color: #111; border-color: var(--accent); font-weight: 700; }
+  .lightbox { position: fixed; inset: 0; background: #000e; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; z-index: 10; padding: 20px; }
+  .lightbox.open { display: flex; }
+  .lightbox img { max-width: 100%; max-height: calc(100vh - 140px); border-radius: 6px; }
+  .lightbox .assign button { width: auto; padding: 8px 14px; font-size: 15px; }
+  .lightbox .assign small { font-size: 14px; margin-right: 12px; }
+  .hint { color: var(--muted); font-size: 14px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  @media (max-width: 640px) { .slots { grid-template-columns: repeat(3, 1fr); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Name That Movie</h1>
+  <div class="tabs" id="movieTabs"></div>
+  <div class="spacer"></div>
+  <button id="modeBtn" class="primary">Pick Frames</button>
+</header>
+
+<main id="game">
+  <div class="stage" id="stage"></div>
+  <div class="controls">
+    <button id="prevMovie">◀◀ Movie</button>
+    <button id="prevFrame">◀ Frame</button>
+    <div class="dots" id="dots"></div>
+    <button id="nextFrame" class="primary">Frame ▶</button>
+    <button id="reveal">Reveal</button>
+    <button id="nextMovie">Movie ▶▶</button>
+  </div>
+  <div class="controls" style="padding-top:0"><div class="answer" id="answer"></div></div>
+</main>
+
+<section id="setup">
+  <div class="row">
+    <strong id="setupTitle"></strong>
+    <span class="hint">Under any frame, click <b>1–5</b> to put it in that position (1 = hardest, 5 = title screen). Click a frame to view it large.
+      Or click a slot below, then a frame.
+      Use <b>Zoom</b> to crop into a detail, then click the selected slot's image to choose where to zoom.</span>
+  </div>
+  <div class="slots" id="slots"></div>
+  <div class="row" style="margin-bottom:14px">
+    <button id="clearPicks">Clear this movie</button>
+    <button id="exportPicks" class="primary">Export picks.js</button>
+    <span class="hint">Picks save in this browser automatically. Export and replace picks.js to keep them for good.</span>
+  </div>
+  <div class="grid" id="grid"></div>
+</section>
+
+<div class="lightbox" id="lightbox">
+  <img id="lbImg" alt="">
+  <div class="assign" id="lbAssign"></div>
+  <div class="hint">← / → browse · keys 1–5 assign · Esc close</div>
+</div>
+
+<script src="movies.js"></script>
+<script src="manifest.js"></script>
+<script src="picks.js"></script>
+<script>
+const MOVIES = window.MOVIES || [];
+const MANIFEST = window.FRAME_MANIFEST || {};
+const LEVELS = ["Very hard", "Hard", "Medium", "Easy", "Title screen"];
+const store = {
+  get() { try { return JSON.parse(localStorage.getItem("nameThatMoviePicks") || "{}"); } catch { return {}; } },
+  set(v) { try { localStorage.setItem("nameThatMoviePicks", JSON.stringify(v)); } catch {} }
+};
+let saved = store.get();
+let movie = 0, frame = 0, revealed = false, mode = "game", slot = 0;
+const seen = new Set();
+
+function picksFor(m) {
+  const id = MOVIES[m].id;
+  const p = saved[id] || (window.FRAME_PICKS || {})[id];
+  return (p || []).slice();
+}
+
+function zoomsFor(m) {
+  const id = MOVIES[m].id;
+  return (saved[id + ":zoom"] || (window.FRAME_PICKS || {})[id + ":zoom"] || []).slice();
+}
+function applyZoom(img, z) {
+  if (!z || z.z <= 1) return img;
+  img.style.transform = "scale(" + z.z + ")";
+  img.style.transformOrigin = z.x + "% " + z.y + "%";
+  return img;
+}
+
+function el(tag, props = {}, kids = []) {
+  const e = Object.assign(document.createElement(tag), props);
+  kids.forEach(k => e.append(k));
+  return e;
+}
+
+function renderTabs() {
+  const t = document.getElementById("movieTabs"); t.innerHTML = "";
+  MOVIES.forEach((m, i) => t.append(el("button", {
+    textContent: "Movie " + (i + 1), className: i === movie ? "on" : "",
+    onclick: () => goMovie(i)
+  })));
+}
+
+function renderGame() {
+  const picks = picksFor(movie);
+  const stage = document.getElementById("stage"); stage.innerHTML = "";
+  seen.add(movie + ":" + frame);
+  if (!picks[frame]) {
+    stage.append(el("div", { className: "empty", innerHTML:
+      "<p><strong>Frame " + (frame + 1) + " of Movie " + (movie + 1) + " isn't picked yet.</strong></p>" +
+      "<p>Click <b>Pick Frames</b> (top right) to choose it." +
+      ((MANIFEST[MOVIES[movie].id] || []).length ? "" : " No frames found yet: run <code>python3 fetch_frames.py</code> first (see README.md), then reload.") + "</p>" }));
+  } else {
+    const img = applyZoom(el("img", { src: picks[frame], alt: "Frame " + (frame + 1) }), zoomsFor(movie)[frame]);
+    stage.append(el("div", { className: "frame" }, [img]));
+    stage.append(el("div", { className: "label", textContent: "Movie " + (movie + 1) + " · Frame " + (frame + 1) + " of 5 · " + LEVELS[frame] }));
+  }
+  const dots = document.getElementById("dots"); dots.innerHTML = "";
+  for (let i = 0; i < 5; i++) dots.append(el("button", {
+    className: "dot" + (i === frame ? " on" : seen.has(movie + ":" + i) ? " seen" : ""),
+    textContent: i + 1, onclick: () => { frame = i; renderGame(); }
+  }));
+  document.getElementById("prevFrame").disabled = frame === 0;
+  document.getElementById("nextFrame").disabled = frame === 4;
+  document.getElementById("prevMovie").disabled = movie === 0;
+  document.getElementById("nextMovie").disabled = movie === MOVIES.length - 1;
+  document.getElementById("answer").textContent = revealed ? MOVIES[movie].title : "";
+  document.getElementById("reveal").textContent = revealed ? "Hide" : "Reveal";
+}
+
+function renderSetup() {
+  const id = MOVIES[movie].id;
+  const picks = picksFor(movie).slice();
+  while (picks.length < 5) picks.push(null);
+  document.getElementById("setupTitle").textContent = "Movie " + (movie + 1) + ": " + MOVIES[movie].title;
+  const slots = document.getElementById("slots"); slots.innerHTML = "";
+  const zooms = zoomsFor(movie);
+  const saveZoom = () => { saved[id + ":zoom"] = zooms; store.set(saved); renderSetup(); };
+  picks.forEach((src, i) => {
+    const z = zooms[i] || { z: 1, x: 50, y: 50 };
+    const s = el("div", { className: "slot" + (i === slot ? " on" : "") + (z.z > 1 ? " zoomed" : "") },
+      [el("span", { textContent: (i + 1) + " · " + LEVELS[i] })]);
+    s.onclick = e => {
+      if (i === slot && src && z.z > 1) {           // pick zoom focus point
+        const r = s.getBoundingClientRect();
+        zooms[i] = { z: z.z, x: Math.round((e.clientX - r.left) / r.width * 100), y: Math.round((e.clientY - r.top) / r.height * 100) };
+        return saveZoom();
+      }
+      slot = i; renderSetup();
+    };
+    if (src) {
+      s.append(el("div", { className: "crop" }, [applyZoom(el("img", { src }), z)]));
+      s.append(el("button", { className: "zoom", textContent: "Zoom " + z.z + "x", onclick: e => {
+        e.stopPropagation(); zooms[i] = { ...z, z: z.z >= 4 ? 1 : z.z + 1 }; slot = i; saveZoom();
+      } }));
+    } else s.append("empty");
+    slots.append(s);
+  });
+  const grid = document.getElementById("grid"); grid.innerHTML = "";
+  const cands = MANIFEST[id] || [];
+  if (!cands.length) grid.append(el("p", { className: "hint", textContent: "No candidate frames found. Run python3 fetch_frames.py first (see README.md)." }));
+  cands.forEach((src, ci) => {
+    const pos = picks.indexOf(src);
+    const tile = el("div", { className: "tile" + (pos >= 0 ? " used" : "") }, [
+      el("img", { src, loading: "lazy", onclick: () => openLightbox(ci) }),
+      el("span", { className: "num", textContent: "#" + (ci + 1) })
+    ]);
+    if (pos >= 0) tile.append(el("span", { className: "badge", textContent: "Frame " + (pos + 1) }));
+    tile.append(assignRow(src, "Frame:"));
+    grid.append(tile);
+  });
+  if (lbIndex !== null) openLightbox(lbIndex);
+}
+
+// Put a frame in position i (0-4). Clicking the same position again removes it.
+function assign(src, i) {
+  const id = MOVIES[movie].id;
+  const picks = picksFor(movie); while (picks.length < 5) picks.push(null);
+  const zz = zoomsFor(movie);
+  if (picks[i] === src) { picks[i] = null; }
+  else {
+    const old = picks.indexOf(src);
+    if (old >= 0) picks[old] = null;          // move it, don't duplicate
+    picks[i] = src; zz[i] = { z: 1, x: 50, y: 50 };
+  }
+  saved[id] = picks; saved[id + ":zoom"] = zz; store.set(saved); slot = i;
+  renderSetup();
+}
+function assignRow(src, label) {
+  const picks = picksFor(movie);
+  const row = el("div", { className: "assign" }, [el("small", { textContent: label })]);
+  for (let i = 0; i < 5; i++) row.append(el("button", {
+    textContent: i + 1, title: LEVELS[i], className: picks[i] === src ? "on" : "",
+    onclick: e => { e.stopPropagation(); assign(src, i); }
+  }));
+  return row;
+}
+let lbIndex = null;
+function openLightbox(ci) {
+  const cands = MANIFEST[MOVIES[movie].id] || [];
+  if (!cands.length) return;
+  lbIndex = (ci + cands.length) % cands.length;
+  const src = cands[lbIndex];
+  document.getElementById("lbImg").src = src;
+  const a = document.getElementById("lbAssign");
+  a.replaceWith(Object.assign(assignRow(src, "#" + (lbIndex + 1) + " of " + cands.length + " · Use as frame:"), { id: "lbAssign" }));
+  document.getElementById("lightbox").classList.add("open");
+}
+function closeLightbox() { lbIndex = null; document.getElementById("lightbox").classList.remove("open"); }
+document.getElementById("lightbox").onclick = e => { if (e.target.id === "lightbox") closeLightbox(); };
+
+function render() {
+  renderTabs();
+  document.getElementById("game").style.display = mode === "game" ? "flex" : "none";
+  document.getElementById("setup").style.display = mode === "setup" ? "block" : "none";
+  document.getElementById("modeBtn").textContent = mode === "game" ? "Pick Frames" : "Play";
+  mode === "game" ? renderGame() : renderSetup();
+}
+
+function goMovie(i) { closeLightbox(); movie = Math.max(0, Math.min(MOVIES.length - 1, i)); frame = 0; slot = 0; revealed = false; render(); }
+
+document.getElementById("modeBtn").onclick = () => { mode = mode === "game" ? "setup" : "game"; render(); };
+document.getElementById("prevFrame").onclick = () => { frame = Math.max(0, frame - 1); renderGame(); };
+document.getElementById("nextFrame").onclick = () => { frame = Math.min(4, frame + 1); renderGame(); };
+document.getElementById("prevMovie").onclick = () => goMovie(movie - 1);
+document.getElementById("nextMovie").onclick = () => goMovie(movie + 1);
+document.getElementById("reveal").onclick = () => { revealed = !revealed; renderGame(); };
+document.getElementById("clearPicks").onclick = () => { delete saved[MOVIES[movie].id]; delete saved[MOVIES[movie].id + ":zoom"]; store.set(saved); slot = 0; renderSetup(); };
+document.getElementById("exportPicks").onclick = () => {
+  const all = {};
+  MOVIES.forEach((m, i) => { all[m.id] = picksFor(i); all[m.id + ":zoom"] = zoomsFor(i); });
+  const blob = new Blob(["// Exported from Setup.\nwindow.FRAME_PICKS = " + JSON.stringify(all, null, 1) + ";\n"], { type: "text/javascript" });
+  const a = el("a", { href: URL.createObjectURL(blob), download: "picks.js" }); a.click();
+};
+document.addEventListener("keydown", e => {
+  if (lbIndex !== null) {
+    const cands = MANIFEST[MOVIES[movie].id] || [];
+    if (e.key === "Escape") closeLightbox();
+    else if (e.key === "ArrowRight") openLightbox(lbIndex + 1);
+    else if (e.key === "ArrowLeft") openLightbox(lbIndex - 1);
+    else if ("12345".includes(e.key) && e.key.length === 1) assign(cands[lbIndex], +e.key - 1);
+    return;
+  }
+  if (mode !== "game") return;
+  if (e.key === "ArrowRight") document.getElementById("nextFrame").click();
+  else if (e.key === "ArrowLeft") document.getElementById("prevFrame").click();
+  else if (e.key === "ArrowDown" || e.key === "n") goMovie(movie + 1);
+  else if (e.key === "ArrowUp" || e.key === "p") goMovie(movie - 1);
+  else if (e.key === " " || e.key === "r") { e.preventDefault(); revealed = !revealed; renderGame(); }
+  else if (e.key === "f") document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+});
+if (!MOVIES.some((m, i) => picksFor(i).some(Boolean))) mode = "setup";
+render();
+</script>
+</body>
+</html>
