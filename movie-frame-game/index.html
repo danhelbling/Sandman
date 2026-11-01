@@ -50,9 +50,20 @@
   .slot.on.zoomed { cursor: crosshair; }
   .slot span { position: absolute; left: 6px; top: 6px; background: #000c; padding: 2px 8px; border-radius: 6px; font-size: 12px; z-index: 1; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
-  .grid img { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: 6px; cursor: pointer; border: 2px solid transparent; }
-  .grid img:hover { border-color: var(--muted); }
-  .grid img.used { border-color: var(--accent); }
+  .tile { background: var(--panel); border: 2px solid var(--line); border-radius: 8px; overflow: hidden; position: relative; }
+  .tile.used { border-color: var(--accent); }
+  .tile img { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; cursor: zoom-in; }
+  .tile .num { position: absolute; left: 6px; top: 6px; background: #000c; padding: 1px 7px; border-radius: 6px; font-size: 12px; color: var(--muted); }
+  .tile .badge { position: absolute; right: 6px; top: 6px; background: var(--accent); color: #111; padding: 1px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; }
+  .assign { display: flex; gap: 4px; padding: 6px; align-items: center; }
+  .assign small { color: var(--muted); margin-right: auto; font-size: 12px; white-space: nowrap; }
+  .assign button { padding: 3px 0; width: 30px; font-size: 13px; }
+  .assign button.on { background: var(--accent); color: #111; border-color: var(--accent); font-weight: 700; }
+  .lightbox { position: fixed; inset: 0; background: #000e; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; z-index: 10; padding: 20px; }
+  .lightbox.open { display: flex; }
+  .lightbox img { max-width: 100%; max-height: calc(100vh - 140px); border-radius: 6px; }
+  .lightbox .assign button { width: auto; padding: 8px 14px; font-size: 15px; }
+  .lightbox .assign small { font-size: 14px; margin-right: 12px; }
   .hint { color: var(--muted); font-size: 14px; }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   @media (max-width: 640px) { .slots { grid-template-columns: repeat(3, 1fr); } }
@@ -63,7 +74,7 @@
   <h1>Name That Movie</h1>
   <div class="tabs" id="movieTabs"></div>
   <div class="spacer"></div>
-  <button id="modeBtn">Setup</button>
+  <button id="modeBtn" class="primary">Pick Frames</button>
 </header>
 
 <main id="game">
@@ -82,7 +93,8 @@
 <section id="setup">
   <div class="row">
     <strong id="setupTitle"></strong>
-    <span class="hint">Click a slot, then click a frame to put it there. Slot 1 = hardest, slot 5 = title screen.
+    <span class="hint">Under any frame, click <b>1–5</b> to put it in that position (1 = hardest, 5 = title screen). Click a frame to view it large.
+      Or click a slot below, then a frame.
       Use <b>Zoom</b> to crop into a detail, then click the selected slot's image to choose where to zoom.</span>
   </div>
   <div class="slots" id="slots"></div>
@@ -93,6 +105,12 @@
   </div>
   <div class="grid" id="grid"></div>
 </section>
+
+<div class="lightbox" id="lightbox">
+  <img id="lbImg" alt="">
+  <div class="assign" id="lbAssign"></div>
+  <div class="hint">← / → browse · keys 1–5 assign · Esc close</div>
+</div>
 
 <script src="movies.js"></script>
 <script src="manifest.js"></script>
@@ -112,10 +130,7 @@ const seen = new Set();
 function picksFor(m) {
   const id = MOVIES[m].id;
   const p = saved[id] || (window.FRAME_PICKS || {})[id];
-  if (p && p.some(Boolean)) return p;
-  const c = MANIFEST[id] || [];               // default: 5 frames spread across all candidates
-  if (!c.length) return [];
-  return [0, 1, 2, 3, 4].map(i => c[Math.min(c.length - 1, Math.round(i * (c.length - 1) / 4))]);
+  return (p || []).slice();
 }
 
 function zoomsFor(m) {
@@ -149,8 +164,9 @@ function renderGame() {
   seen.add(movie + ":" + frame);
   if (!picks[frame]) {
     stage.append(el("div", { className: "empty", innerHTML:
-      "<p><strong>No frames yet for Movie " + (movie + 1) + ".</strong></p>" +
-      "<p>Run <code>./fetch_frames.sh</code> in this folder, then reload. Use Setup to pick the 5 frames.</p>" }));
+      "<p><strong>Frame " + (frame + 1) + " of Movie " + (movie + 1) + " isn't picked yet.</strong></p>" +
+      "<p>Click <b>Pick Frames</b> (top right) to choose it." +
+      ((MANIFEST[MOVIES[movie].id] || []).length ? "" : " No frames found yet: run <code>./fetch_frames.sh</code> first, then reload.") + "</p>" }));
   } else {
     const img = applyZoom(el("img", { src: picks[frame], alt: "Frame " + (frame + 1) }), zoomsFor(movie)[frame]);
     stage.append(el("div", { className: "frame" }, [img]));
@@ -200,21 +216,65 @@ function renderSetup() {
   const grid = document.getElementById("grid"); grid.innerHTML = "";
   const cands = MANIFEST[id] || [];
   if (!cands.length) grid.append(el("p", { className: "hint", textContent: "No candidate frames found. Run ./fetch_frames.sh first." }));
-  cands.forEach(src => grid.append(el("img", {
-    src, loading: "lazy", title: src, className: picks.includes(src) ? "used" : "",
-    onclick: () => { picks[slot] = src; saved[id] = picks; const zz = zoomsFor(movie); zz[slot] = { z: 1, x: 50, y: 50 }; saved[id + ":zoom"] = zz; store.set(saved); slot = Math.min(4, slot + 1); renderSetup(); }
-  })));
+  cands.forEach((src, ci) => {
+    const pos = picks.indexOf(src);
+    const tile = el("div", { className: "tile" + (pos >= 0 ? " used" : "") }, [
+      el("img", { src, loading: "lazy", onclick: () => openLightbox(ci) }),
+      el("span", { className: "num", textContent: "#" + (ci + 1) })
+    ]);
+    if (pos >= 0) tile.append(el("span", { className: "badge", textContent: "Frame " + (pos + 1) }));
+    tile.append(assignRow(src, "Frame:"));
+    grid.append(tile);
+  });
+  if (lbIndex !== null) openLightbox(lbIndex);
 }
+
+// Put a frame in position i (0-4). Clicking the same position again removes it.
+function assign(src, i) {
+  const id = MOVIES[movie].id;
+  const picks = picksFor(movie); while (picks.length < 5) picks.push(null);
+  const zz = zoomsFor(movie);
+  if (picks[i] === src) { picks[i] = null; }
+  else {
+    const old = picks.indexOf(src);
+    if (old >= 0) picks[old] = null;          // move it, don't duplicate
+    picks[i] = src; zz[i] = { z: 1, x: 50, y: 50 };
+  }
+  saved[id] = picks; saved[id + ":zoom"] = zz; store.set(saved); slot = i;
+  renderSetup();
+}
+function assignRow(src, label) {
+  const picks = picksFor(movie);
+  const row = el("div", { className: "assign" }, [el("small", { textContent: label })]);
+  for (let i = 0; i < 5; i++) row.append(el("button", {
+    textContent: i + 1, title: LEVELS[i], className: picks[i] === src ? "on" : "",
+    onclick: e => { e.stopPropagation(); assign(src, i); }
+  }));
+  return row;
+}
+let lbIndex = null;
+function openLightbox(ci) {
+  const cands = MANIFEST[MOVIES[movie].id] || [];
+  if (!cands.length) return;
+  lbIndex = (ci + cands.length) % cands.length;
+  const src = cands[lbIndex];
+  document.getElementById("lbImg").src = src;
+  const a = document.getElementById("lbAssign");
+  a.replaceWith(Object.assign(assignRow(src, "#" + (lbIndex + 1) + " of " + cands.length + " · Use as frame:"), { id: "lbAssign" }));
+  document.getElementById("lightbox").classList.add("open");
+}
+function closeLightbox() { lbIndex = null; document.getElementById("lightbox").classList.remove("open"); }
+document.getElementById("lightbox").onclick = e => { if (e.target.id === "lightbox") closeLightbox(); };
 
 function render() {
   renderTabs();
   document.getElementById("game").style.display = mode === "game" ? "flex" : "none";
   document.getElementById("setup").style.display = mode === "setup" ? "block" : "none";
-  document.getElementById("modeBtn").textContent = mode === "game" ? "Setup" : "Play";
+  document.getElementById("modeBtn").textContent = mode === "game" ? "Pick Frames" : "Play";
   mode === "game" ? renderGame() : renderSetup();
 }
 
-function goMovie(i) { movie = Math.max(0, Math.min(MOVIES.length - 1, i)); frame = 0; slot = 0; revealed = false; render(); }
+function goMovie(i) { closeLightbox(); movie = Math.max(0, Math.min(MOVIES.length - 1, i)); frame = 0; slot = 0; revealed = false; render(); }
 
 document.getElementById("modeBtn").onclick = () => { mode = mode === "game" ? "setup" : "game"; render(); };
 document.getElementById("prevFrame").onclick = () => { frame = Math.max(0, frame - 1); renderGame(); };
@@ -230,6 +290,14 @@ document.getElementById("exportPicks").onclick = () => {
   const a = el("a", { href: URL.createObjectURL(blob), download: "picks.js" }); a.click();
 };
 document.addEventListener("keydown", e => {
+  if (lbIndex !== null) {
+    const cands = MANIFEST[MOVIES[movie].id] || [];
+    if (e.key === "Escape") closeLightbox();
+    else if (e.key === "ArrowRight") openLightbox(lbIndex + 1);
+    else if (e.key === "ArrowLeft") openLightbox(lbIndex - 1);
+    else if ("12345".includes(e.key) && e.key.length === 1) assign(cands[lbIndex], +e.key - 1);
+    return;
+  }
   if (mode !== "game") return;
   if (e.key === "ArrowRight") document.getElementById("nextFrame").click();
   else if (e.key === "ArrowLeft") document.getElementById("prevFrame").click();
@@ -238,6 +306,7 @@ document.addEventListener("keydown", e => {
   else if (e.key === " " || e.key === "r") { e.preventDefault(); revealed = !revealed; renderGame(); }
   else if (e.key === "f") document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
 });
+if (!MOVIES.some((m, i) => picksFor(i).some(Boolean))) mode = "setup";
 render();
 </script>
 </body>
